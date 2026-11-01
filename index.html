@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>스마트 업무 관리 대시보드 - 실시간 동기화</title>
+
+  <!-- 모바일 독립 실행(PWA/웹앱) 설정 -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="icon" sizes="192x192" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
+
+  <!-- Firebase SDK (v9 호환 모드 - Realtime Database 실시간 동기화) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <style>
+    :root {
+      --bg-color: #f8fafc;
+      --card-bg: #ffffff;
+      --text-main: #1e293b;
+      --text-muted: #64748b;
+      --border-color: #e2e8f0;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --danger: #ef4444;
+      --panel-bg: #f1f5f9;
+      --badge-bg: #e2e8f0;
+      --cal-cell-bg: #f8fafc;
+      --cal-cell-hover: #edf2f7;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    [data-theme="dark"] {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --border-color: #334155;
+      --primary: #60a5fa;
+      --primary-hover: #3b82f6;
+      --panel-bg: #111827;
+      --badge-bg: #334155;
+      --cal-cell-bg: #162032;
+      --cal-cell-hover: #1e2c42;
+      --shadow-sm: 0 1px 4px rgba(0,0,0,0.3);
+    }
+    [data-theme="navy"] {
+      --bg-color: #0d1b2a;
+      --card-bg: #1b263b;
+      --text-main: #e0e1dd;
+      --text-muted: #778da9;
+      --border-color: #415a77;
+      --primary: #48cae4;
+      --primary-hover: #00b4d8;
+      --panel-bg: #141e30;
+      --badge-bg: #27384e;
+      --cal-cell-bg: #162235;
+      --cal-cell-hover: #1e2f47;
+      --shadow-sm: 0 1px 4px rgba(0,0,0,0.3);
+    }
+    [data-theme="forest"] {
+      --bg-color: #1a251e;
+      --card-bg: #243429;
+      --text-main: #e2ede6;
+      --text-muted: #8aa393;
+      --border-color: #385141;
+      --primary: #52b788;
+      --primary-hover: #40916c;
+      --panel-bg: #152019;
+      --badge-bg: #344a3c;
+      --cal-cell-bg: #1e2c22;
+      --cal-cell-hover: #293d2f;
+      --shadow-sm: 0 1px 4px rgba(0,0,0,0.3);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", sans-serif; transition: background-color 0.2s, color 0.2s, border-color 0.2s; -webkit-tap-highlight-color: transparent; }
+    body { background-color: var(--bg-color); color: var(--text-main); padding: 20px; }
+    .container { max-width: 1200px; margin: 0 auto; }
+
+    /* 실시간 동기화 상태 배지 */
+    #sync-status {
+      font-size: 12px;
+      padding: 5px 11px;
+      border-radius: 9999px;
+      background-color: #fef3c7;
+      color: #b45309;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .sync-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: currentColor;
+    }
+
+    .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+    .nav-left { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .view-tabs { display: flex; gap: 4px; background: var(--panel-bg); padding: 4px; border-radius: 8px; border: 1px solid var(--border-color); }
+    .tab-btn { border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; background: transparent; color: var(--text-muted); font-size: 13px; }
+    .tab-btn.active { background: var(--card-bg); color: var(--primary); box-shadow: var(--shadow-sm); }
+    
+    .header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .theme-select { padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); font-size: 13px; font-weight: 600; cursor: pointer; outline: none; }
+    .btn-action { background: var(--panel-bg); color: var(--text-main); border: 1px solid var(--border-color); padding: 7px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+    .btn-action:hover { border-color: var(--primary); }
+
+    /* 패널 박스 공통 */
+    .panel-box { background: var(--card-bg); padding: 16px; border-radius: 10px; border: 1px solid var(--border-color); margin-bottom: 16px; display: none; box-shadow: var(--shadow-sm); }
+    .panel-box.open { display: block; }
+    .panel-box textarea { width: 100%; height: 80px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-main); border-radius: 6px; padding: 10px; resize: vertical; margin-bottom: 10px; font-size: 13px; outline: none; }
+    .panel-box textarea:focus { border-color: var(--primary); }
+    .panel-box input[type="text"], .panel-box input[type="password"], .panel-box select, .panel-box input[type="time"] { width: 100%; padding: 8px 10px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-main); border-radius: 6px; font-size: 13px; margin-bottom: 8px; outline: none; }
+    .panel-box input[type="text"]:focus, .panel-box input[type="password"]:focus { border-color: var(--primary); }
+    .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    /* 업무 등록 바 */
+    .input-bar { background: var(--card-bg); padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border-color); display: flex; gap: 8px; align-items: center; margin-bottom: 20px; box-shadow: var(--shadow-sm); flex-wrap: wrap; }
+    .input-bar input[type="text"] { flex: 1; min-width: 200px; padding: 9px 12px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-main); border-radius: 6px; font-size: 14px; outline: none; }
+    .input-bar input[type="text"]:focus { border-color: var(--primary); }
+    .input-bar input[type="date"], .input-bar select { padding: 8px 10px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-main); border-radius: 6px; font-size: 13px; outline: none; }
+    .btn-submit { background: var(--primary); color: #fff; border: none; padding: 9px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; }
+    .btn-submit:hover { background: var(--primary-hover); }
+
+    .view-content { display: none; }
+    .view-content.active { display: block; }
+
+    .date-nav-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+    .nav-btn-group { display: flex; gap: 6px; }
+    .date-nav-title { font-size: 16px; font-weight: 700; color: var(--text-main); }
+
+    /* 칸반 보드 */
+    .kanban-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .kanban-column { background: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 14px; min-height: 480px; }
+    .column-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-weight: 700; color: var(--text-main); }
+    .count-badge { background: var(--badge-bg); color: var(--text-main); padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+    .task-list { display: flex; flex-direction: column; gap: 10px; min-height: 400px; }
+
+    /* 카드 스타일 & 삭선(완료) */
+    .task-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; box-shadow: var(--shadow-sm); cursor: grab; user-select: none; }
+    .task-card.dragging { opacity: 0.5; }
+    .task-card.is-done { opacity: 0.65; }
+    
+    .task-header { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+    .task-checkbox { margin-top: 3px; cursor: pointer; width: 16px; height: 16px; accent-color: var(--primary); }
+    .task-title { font-size: 14px; font-weight: 600; line-height: 1.4; flex: 1; word-break: break-all; }
+    .task-title.completed-text { text-decoration: line-through; color: var(--text-muted); }
+
+    .task-meta { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted); flex-wrap: wrap; gap: 6px; padding-left: 24px; }
+    .meta-left { display: flex; align-items: center; gap: 6px; }
+    .priority-badge { padding: 2px 6px; border-radius: 4px; font-weight: 600; font-size: 10px; }
+    .p-높음 { background: #fee2e2; color: #b91c1c; }
+    .p-보통 { background: #e0f2fe; color: #0369a1; }
+    .p-낮음 { background: var(--badge-bg); color: var(--text-muted); }
+
+    .card-actions { display: flex; align-items: center; gap: 4px; }
+    .btn-xs { padding: 2px 7px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--panel-bg); color: var(--text-main); cursor: pointer; font-weight: 500; }
+    .btn-xs:hover { border-color: var(--primary); color: var(--primary); }
+    .btn-delete { border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 13px; padding: 2px 5px; border-radius: 4px; }
+    .btn-delete:hover { color: var(--danger); background: rgba(239, 68, 68, 0.1); }
+
+    /* 주간 뷰 */
+    .weekly-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+    .day-column { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; min-height: 380px; display: flex; flex-direction: column; }
+    .day-header { font-weight: 600; font-size: 13px; text-align: center; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+    .btn-quick-add { background: var(--panel-bg); border: 1px solid var(--border-color); font-size: 10px; padding: 2px 5px; border-radius: 4px; cursor: pointer; color: var(--text-main); }
+    .btn-quick-add:hover { border-color: var(--primary); color: var(--primary); }
+    .week-task-item { background: var(--panel-bg); padding: 6px 8px; border-radius: 5px; margin-bottom: 6px; font-size: 12px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 6px; }
+    .week-task-item.completed-text { text-decoration: line-through; color: var(--text-muted); opacity: 0.65; }
+
+    /* 월간 뷰 */
+    .monthly-calendar { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; box-shadow: var(--shadow-sm); }
+    .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .cal-header { font-weight: 700; text-align: center; padding: 8px; color: var(--text-muted); font-size: 13px; }
+    .cal-cell { min-height: 96px; border: 1px solid var(--border-color); border-radius: 6px; padding: 6px; font-size: 11px; background: var(--cal-cell-bg); cursor: pointer; transition: 0.15s; }
+    .cal-cell:hover { background: var(--cal-cell-hover); border-color: var(--primary); }
+    .cal-cell-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .cal-date { font-weight: 700; }
+    .cal-pill { background: var(--primary); color: #ffffff; padding: 2px 5px; border-radius: 3px; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10px; cursor: pointer; }
+    .cal-pill.completed-pill { text-decoration: line-through; background: var(--badge-bg); color: var(--text-muted); opacity: 0.75; }
+
+    @media (max-width: 900px) {
+      .weekly-grid { grid-template-columns: 1fr; }
+      .day-column { min-height: auto; }
+    }
+    @media (max-width: 768px) {
+      body { padding: 12px; }
+      .kanban-grid { grid-template-columns: 1fr; }
+      .kanban-column { min-height: auto; }
+      .task-list { min-height: 120px; }
+      .sync-grid { grid-template-columns: 1fr !important; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="top-bar">
+    <div class="nav-left">
+      <div class="view-tabs">
+        <button class="tab-btn active" onclick="switchView('kanban', this)">오늘 할 일 (칸반)</button>
+        <button class="tab-btn" onclick="switchView('weekly', this)">주간 일정</button>
+        <button class="tab-btn" onclick="switchView('monthly', this)">월간 캘린더</button>
+      </div>
+      <span id="sync-status"><span class="sync-dot"></span><span id="sync-status-text">연결 확인 중...</span></span>
+      <button class="btn-action" onclick="togglePanel('bulkPanel')">줄 단위 붙여넣기</button>
+      <button class="btn-action" style="font-weight:700; color:var(--primary);" onclick="togglePanel('voicePanel')">🎙️ 음성 브리핑 설정</button>
+      <button class="btn-action" style="font-weight:700; color:var(--primary);" onclick="togglePanel('syncPanel')">🔒 깃허브 보안 동기화</button>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn-action" onclick="exportData()">데이터 백업</button>
+      <input type="file" id="fileInput" accept=".json" style="display:none" onchange="importData(event)">
+      <button class="btn-action" onclick="document.getElementById('fileInput').click()">백업 복원</button>
+      <select id="themeSelect" class="theme-select" onchange="changeTheme(this.value)">
+        <option value="light">☀️ 화이트 (Light)</option>
+        <option value="dark">🌙 다크 (Dark)</option>
+        <option value="navy">🌊 네이비 블루 (Navy)</option>
+        <option value="forest">🌲 포레스트 그린 (Forest)</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 대량 붙여넣기 패널 -->
+  <div class="panel-box" id="bulkPanel">
+    <textarea id="bulkInput" placeholder="줄 단위로 입력 (예: 안전인증 규정 개정안 검토 | 2026-11-05)&#10;마감일을 생략하면 현재 입력바의 날짜로 자동 등록됩니다."></textarea>
+    <div class="actions">
+      <button class="btn-submit" onclick="importBulkTasks()">한 번에 보드에 반영</button>
+      <button class="btn-action" onclick="togglePanel('bulkPanel')">닫기</button>
+    </div>
+  </div>
+
+  <!-- 음성 브리핑 알림 설정 패널 -->
+  <div class="panel-box" id="voicePanel">
+    <div style="font-weight: bold; margin-bottom: 12px; font-size: 14px;">🎙️ 오늘 할 일 지정 시각 음성 브리핑 (로컬 TTS)</div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 12px;">
+      <div>
+        <label style="font-size: 12px; color: var(--text-muted); font-weight: 600;">음성 알림 활성화 여부</label>
+        <select id="voiceEnabled" onchange="saveVoiceSettings()">
+          <option value="false">❌ 음성 알림 끄기 (Off)</option>
+          <option value="true">🔔 지정 시각에 자동 음성 낭독 (On)</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size: 12px; color: var(--text-muted); font-weight: 600;">알림 시각 (24시간제)</label>
+        <input type="time" id="voiceTime" value="09:00" onchange="saveVoiceSettings()">
+      </div>
+      <div>
+        <label style="font-size: 12px; color: var(--text-muted); font-weight: 600;">음성 종류 (여성/남성/기본)</label>
+        <select id="voiceSelect" onchange="saveVoiceSettings()"></select>
+      </div>
+      <div>
+        <label style="font-size: 12px; color: var(--text-muted); font-weight: 600;">낭독 속도</label>
+        <select id="voiceRate" onchange="saveVoiceSettings()">
+          <option value="0.9">조금 천천히 (0.9x)</option>
+          <option value="1.0" selected>보통 속도 (1.0x)</option>
+          <option value="1.15">약간 빠르게 (1.15x)</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn-submit" onclick="playVoiceBriefing(true)">▶️ 지금 바로 브리핑 듣기 (테스트)</button>
+      <button class="btn-action" onclick="stopVoice()">⏹️ 멈추기</button>
+      <button class="btn-action" onclick="togglePanel('voicePanel')">닫기</button>
+    </div>
+    <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
+      * 브라우저가 열려 있을 때 지정된 시각에 오늘 마감인 미완료 업무를 음성으로 안내합니다.
+    </div>
+  </div>
+
+  <!-- 깃허브 보안 동기화 패널 -->
+  <div class="panel-box" id="syncPanel">
+    <div style="font-weight: bold; margin-bottom: 12px; font-size: 14px;">🔒 비공개 저장소 종단간 암호화 동기화</div>
+    <div class="sync-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+      <input type="text" id="ghOwner" placeholder="GitHub 사용자명" value="amjuster">
+      <input type="text" id="ghRepo" placeholder="저장소 이름" value="my-task-vault">
+      <input type="password" id="ghToken" placeholder="Personal Access Token (github_pat_...)">
+      <input type="password" id="masterKey" placeholder="암호화 마스터 비밀번호">
+    </div>
+    <div class="actions" style="margin-top: 6px;">
+      <button class="btn-submit" onclick="syncPush()">☁️ 클라우드로 백업 (암호화 업로드)</button>
+      <button class="btn-submit" style="background: #059669;" onclick="syncPull()">📥 클라우드에서 가져오기 (복호화)</button>
+      <button class="btn-action" onclick="togglePanel('syncPanel')">닫기</button>
+    </div>
+    <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
+      * 데이터는 PC 브라우저에서 AES-256으로 완전히 암호화된 후 전송되므로, GitHub 서버에서도 내용을 절대 확인할 수 없습니다.
+    </div>
+  </div>
+
+  <!-- 단일 등록 바 -->
+  <div class="input-bar">
+    <input type="text" id="taskTitle" placeholder="업무 내용을 입력하고 Enter를 누르세요..." onkeyup="if(event.key==='Enter') addTask()">
+    <select id="taskPriority">
+      <option value="보통">우선순위: 보통</option>
+      <option value="높음">우선순위: 높음</option>
+      <option value="낮음">우선순위: 낮음</option>
+    </select>
+    <label style="font-size: 12px; color: var(--text-muted); font-weight:600;">마감/수행일</label>
+    <input type="date" id="taskDueDate">
+    <button class="btn-submit" onclick="addTask()">일정 추가</button>
+  </div>
+
+  <!-- 뷰 1: 칸반 보드 -->
+  <div id="view-kanban" class="view-content active">
+    <div class="kanban-grid">
+      <div class="kanban-column" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'todo')">
+        <div class="column-header">
+          <span>오늘 할 일 (To-Do)</span>
+          <span class="count-badge" id="count-todo">0</span>
+        </div>
+        <div class="task-list" id="list-todo"></div>
+      </div>
+
+      <div class="kanban-column" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'inprogress')">
+        <div class="column-header">
+          <span>진행 중 (In Progress)</span>
+          <span class="count-badge" id="count-inprogress">0</span>
+        </div>
+        <div class="task-list" id="list-inprogress"></div>
+      </div>
+
+      <div class="kanban-column" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'done')">
+        <div class="column-header">
+          <span>완료 (Done)</span>
+          <span class="count-badge" id="count-done">0</span>
+        </div>
+        <div class="task-list" id="list-done"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 뷰 2: 주간 뷰 -->
+  <div id="view-weekly" class="view-content">
+    <div class="date-nav-bar">
+      <div class="date-nav-title" id="weekRangeTitle">이번 주 일정</div>
+      <div class="nav-btn-group">
+        <button class="btn-action" onclick="changeWeek(-1)">◀ 지난주</button>
+        <button class="btn-action" onclick="resetWeek()">이번주</button>
+        <button class="btn-action" onclick="changeWeek(1)">다음주 ▶</button>
+      </div>
+    </div>
+    <div class="weekly-grid" id="weeklyGrid"></div>
+  </div>
+
+  <!-- 뷰 3: 월간 뷰 -->
+  <div id="view-monthly" class="view-content">
+    <div class="monthly-calendar">
+      <div class="date-nav-bar">
+        <div class="date-nav-title" id="monthTitle">월간 일정</div>
+        <div class="nav-btn-group">
+          <button class="btn-action" onclick="changeMonth(-1)">◀ 이전달</button>
+          <button class="btn-action" onclick="resetMonth()">이번달</button>
+          <button class="btn-action" onclick="changeMonth(1)">다음달 ▶</button>
+        </div>
+      </div>
+      <div class="calendar-grid" id="monthlyGrid"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // 테마 초기화
+  const savedTheme = localStorage.getItem('app_theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  document.getElementById('themeSelect').value = savedTheme;
+
+  function changeTheme(themeName) {
+    document.documentElement.setAttribute('data-theme', themeName);
+    localStorage.setItem('app_theme', themeName);
+  }
+
+  // 로컬 날짜 포맷 유틸 (YYYY-MM-DD)
+  function formatDateLocal(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  const todayStr = formatDateLocal(new Date());
+  document.getElementById('taskDueDate').value = todayStr;
+
+  function escapeHtml(string) {
+    return String(string || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // 데이터 호환용 정규화 함수 (구버전 및 심플 버전 text/completed 필드 모두 호환)
+  function normalizeTask(item, idx = 0, explicitKey = null) {
+    const priorityMap = { high: '높음', mid: '보통', low: '낮음', '높음': '높음', '보통': '보통', '낮음': '낮음' };
+    const statusMap = { todo: 'todo', doing: 'inprogress', inprogress: 'inprogress', done: 'done' };
+    
+    let status = statusMap[item.status];
+    if (!status) {
+      status = item.completed ? 'done' : 'todo';
+    }
+
+    const title = String(item.title || item.text || '').trim();
+    const id = String(explicitKey || item.id || ('task_' + (Date.now() + idx) + Math.random().toString(36).substring(2, 6)));
+
+    return {
+      id: id,
+      title: title,
+      text: title,
+      priority: priorityMap[item.priority] || '보통',
+      startDate: item.startDate || todayStr,
+      dueDate: (item.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(item.dueDate)) ? item.dueDate : todayStr,
+      status: status,
+      completed: status === 'done',
+      createdAt: item.createdAt || (Date.now() + idx)
+    };
+  }
+
+  // 로컬 스토리지 초기 로드
+  const rawStored = localStorage.getItem('board_tasks')
+    || localStorage.getItem('my_tasks_local')
+    || localStorage.getItem('my_secure_tasks')
+    || '[]';
+  let tasks = [];
+  try {
+    const parsed = JSON.parse(rawStored);
+    tasks = Array.isArray(parsed) ? parsed.map((t, i) => normalizeTask(t, i)).filter(t => t.title) : [];
+  } catch (e) {
+    tasks = [];
+  }
+
+  let currentWeekOffset = 0;
+  let viewDate = new Date();
+
+  // =========================================================
+  // Firebase Realtime Database 실시간 연동 (my-todo-list-94a89)
+  // =========================================================
+  const firebaseConfig = {
+    apiKey: "AIzaSyCYNmQft13FgnhQvchAiH_BbJijW4tA5Hs",
+    authDomain: "my-todo-list-94a89.firebaseapp.com",
+    databaseURL: "https://my-todo-list-94a89-default-rtdb.firebaseio.com",
+    projectId: "my-todo-list-94a89",
+    storageBucket: "my-todo-list-94a89.firebasestorage.app",
+    messagingSenderId: "34053768644",
+    appId: "1:34053768644:web:101e0ac3ed022fb7ae9091",
+    measurementId: "G-DGGS4S3GFJ"
+  };
+
+  let rtdb = null;
+  let todosRef = null;
+  let isRtdbConnected = false;
+  let hasInitialMigrationChecked = false;
+
+  const syncBadge = document.getElementById('sync-status');
+  const syncText = document.getElementById('sync-status-text');
+
+  function updateSyncBadge(state, label) {
+    syncText.textContent = label;
+    if (state === 'ok') {
+      syncBadge.style.backgroundColor = '#dcfce7';
+      syncBadge.style.color = '#15803d';
+    } else if (state === 'err') {
+      syncBadge.style.backgroundColor = '#fee2e2';
+      syncBadge.style.color = '#b91c1c';
+    } else {
+      syncBadge.style.backgroundColor = '#fef3c7';
+      syncBadge.style.color = '#b45309';
+    }
+  }
+
+  try {
+    if (typeof firebase !== 'undefined') {
+      const app = firebase.initializeApp(firebaseConfig);
+      rtdb = firebase.database(app);
+      todosRef = rtdb.ref('my_todos');
+
+      // 실시간 데이터 변경 감지 (노트북, 스마트폰, 태블릿 자동 반영)
+      todosRef.on('value', (snapshot) => {
+        isRtdbConnected = true;
+        const data = snapshot.val();
+
+        if (!data) {
+          // 만약 클라우드 DB가 완전히 비어 있고 로컬에만 기존 데이터가 있다면 최초 1회 자동 업로드
+          if (!hasInitialMigrationChecked && tasks.length > 0) {
+            hasInitialMigrationChecked = true;
+            const updates = {};
+            tasks.forEach(t => {
+              updates[t.id] = t;
+            });
+            todosRef.update(updates);
+            return;
+          }
+          hasInitialMigrationChecked = true;
+          tasks = [];
+        } else {
+          hasInitialMigrationChecked = true;
+          tasks = Object.entries(data)
+            .map(([key, val], idx) => normalizeTask(val || {}, idx, key))
+            .filter(t => t.title)
+            .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        }
+
+        localStorage.setItem('board_tasks', JSON.stringify(tasks));
+        renderAll();
+        updateSyncBadge('ok', '실시간 동기화됨');
+      }, (error) => {
+        console.error('Firebase RTDB Error:', error);
+        isRtdbConnected = false;
+        updateSyncBadge('err', '오프라인 (로컬 모드)');
+      });
+    } else {
+      updateSyncBadge('err', '로컬 모드');
+    }
+  } catch (err) {
+    console.warn('Firebase 초기화 실패, 로컬 모드로 작동합니다:', err);
+    updateSyncBadge('err', '로컬 모드');
+  }
+
+  function renderAll() {
+    renderKanban();
+    renderWeekly();
+    renderMonthly();
+  }
+
+  function saveAndRender() {
+    localStorage.setItem('board_tasks', JSON.stringify(tasks));
+    renderAll();
+  }
+
+  function syncTaskToCloud(taskObj) {
+    if (todosRef) {
+      todosRef.child(String(taskObj.id)).set(taskObj).catch(err => console.error(err));
+    }
+  }
+
+  function replaceAllTasksInCloud(taskList) {
+    if (todosRef) {
+      const payload = {};
+      taskList.forEach(t => {
+        payload[String(t.id)] = t;
+      });
+      todosRef.set(payload).catch(err => console.error(err));
+    }
+  }
+
+  function togglePanel(panelId) {
+    const el = document.getElementById(panelId);
+    el.classList.toggle('open');
+    if (panelId === 'syncPanel' && el.classList.contains('open')) {
+      document.getElementById('ghOwner').value = localStorage.getItem('gh_owner') || 'amjuster';
+      document.getElementById('ghRepo').value = localStorage.getItem('gh_repo') || 'my-task-vault';
+      document.getElementById('ghToken').value = localStorage.getItem('gh_token') || '';
+    }
+  }
+
+  function switchView(viewName, element) {
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.view-content').forEach(c => c.classList.remove('active'));
+    element.classList.add('active');
+    document.getElementById(`view-${viewName}`).classList.add('active');
+    if (viewName === 'weekly') renderWeekly();
+    if (viewName === 'monthly') renderMonthly();
+  }
+
+  // 삭선 토글 & 완료 일정 자동 이동
+  function toggleTaskComplete(id) {
+    const task = tasks.find(t => String(t.id) === String(id));
+    if (!task) return;
+
+    task.status = task.status === 'done' ? 'todo' : 'done';
+    task.completed = task.status === 'done';
+    saveAndRender();
+    syncTaskToCloud(task);
+  }
+
+  // 상태 변경 (드래그 앤 드롭 & 모바일 버튼 겸용)
+  function updateStatus(id, nextStatus, event) {
+    if (event) event.stopPropagation();
+    const task = tasks.find(t => String(t.id) === String(id));
+    if (task) {
+      task.status = nextStatus;
+      task.completed = nextStatus === 'done';
+      saveAndRender();
+      syncTaskToCloud(task);
+    }
+  }
+
+  function addTask(targetDate) {
+    const titleInput = document.getElementById('taskTitle');
+    const priority = document.getElementById('taskPriority').value;
+    const dueDate = targetDate || document.getElementById('taskDueDate').value || todayStr;
+    
+    let title = titleInput.value.trim();
+    if (targetDate && !title) {
+      title = prompt(`[${targetDate}]에 등록할 새로운 업무명을 입력하세요:`);
+      if (!title || !title.trim()) return;
+      title = title.trim();
+    }
+
+    if (!title) return;
+
+    const newKey = todosRef ? todosRef.push().key : ('task_' + Date.now() + Math.random().toString(36).substring(2, 6));
+    const newTask = normalizeTask({
+      id: newKey,
+      title: title,
+      text: title,
+      priority: priority,
+      startDate: todayStr,
+      dueDate: dueDate,
+      status: 'todo',
+      completed: false,
+      createdAt: Date.now()
+    }, 0, newKey);
+
+    tasks.push(newTask);
+    titleInput.value = '';
+    saveAndRender();
+    syncTaskToCloud(newTask);
+  }
+
+  function importBulkTasks() {
+    const raw = document.getElementById('bulkInput').value;
+    const lines = raw.split('\n').map(l => l.replace(/^[\s*•\-–—]+/, '').replace(/^\[[ xX]?\]\s*/, '').trim()).filter(Boolean);
+    const defaultDate = document.getElementById('taskDueDate').value || todayStr;
+
+    lines.forEach((line, idx) => {
+      let title = line;
+      let dueDate = defaultDate;
+      if (line.includes('|')) {
+        const parts = line.split('|');
+        title = parts[0].trim();
+        const dateMatch = parts[1].trim().match(/\d{4}-\d{2}-\d{2}/);
+        if (dateMatch) dueDate = dateMatch[0];
+      }
+      if (!title) return;
+
+      const newKey = todosRef ? todosRef.push().key : ('task_' + (Date.now() + idx) + Math.random().toString(36).substring(2, 6));
+      const newTask = normalizeTask({
+        id: newKey,
+        title: title,
+        text: title,
+        priority: '보통',
+        startDate: todayStr,
+        dueDate: dueDate,
+        status: 'todo',
+        completed: false,
+        createdAt: Date.now() + idx
+      }, idx, newKey);
+
+      tasks.push(newTask);
+      syncTaskToCloud(newTask);
+    });
+    document.getElementById('bulkInput').value = '';
+    togglePanel('bulkPanel');
+    saveAndRender();
+  }
+
+  function deleteTask(id, event) {
+    if (event) event.stopPropagation();
+    tasks = tasks.filter(t => String(t.id) !== String(id));
+    saveAndRender();
+    if (todosRef) {
+      todosRef.child(String(id)).remove().catch(err => console.error(err));
+    }
+  }
+
+  // 로컬 JSON 파일 백업
+  function exportData() {
+    const blob = new Blob([JSON.stringify(tasks, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `업무보드_백업_${todayStr}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // 로컬 JSON 파일 복원
+  function importData(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const imported = JSON.parse(event.target.result);
+        if (!Array.isArray(imported)) throw new Error('Invalid format');
+        tasks = imported.map((item, idx) => normalizeTask(item, idx)).filter(t => t.title);
+        saveAndRender();
+        replaceAllTasksInCloud(tasks);
+      } catch (err) {
+        alert('올바른 백업 파일 형식이 아닙니다.');
+      } finally {
+        e.target.value = '';
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // 1. 칸반 보드 렌더링
+  function renderKanban() {
+    const lists = { todo: document.getElementById('list-todo'), inprogress: document.getElementById('list-inprogress'), done: document.getElementById('list-done') };
+    const counts = { todo: 0, inprogress: 0, done: 0 };
+    Object.values(lists).forEach(el => el.innerHTML = '');
+
+    tasks.forEach(t => {
+      const st = lists[t.status] ? t.status : 'todo';
+      counts[st]++;
+      const card = document.createElement('div');
+      const isDone = st === 'done';
+      card.className = `task-card ${isDone ? 'is-done' : ''}`;
+      card.draggable = true;
+      card.ondragstart = (e) => {
+        e.dataTransfer.setData('text/plain', t.id);
+        card.classList.add('dragging');
+      };
+      card.ondragend = () => card.classList.remove('dragging');
+
+      const dueShort = (t.dueDate || todayStr).substring(5);
+
+      card.innerHTML = `
+        <div class="task-header">
+          <input type="checkbox" class="task-checkbox" ${isDone ? 'checked' : ''} onchange="toggleTaskComplete('${t.id}')">
+          <div class="task-title ${isDone ? 'completed-text' : ''}">${escapeHtml(t.title)}</div>
+        </div>
+        <div class="task-meta">
+          <div class="meta-left">
+            <span class="priority-badge p-${t.priority}">${t.priority}</span>
+            <span>📅 ~${dueShort}</span>
+          </div>
+          <div class="card-actions">
+            ${st === 'todo' ? `<button class="btn-xs" onclick="updateStatus('${t.id}', 'inprogress', event)">진행</button>` : ''}
+            ${st === 'inprogress' ? `<button class="btn-xs" onclick="updateStatus('${t.id}', 'todo', event)">대기</button>` : ''}
+            <button class="btn-delete" title="삭제" onclick="deleteTask('${t.id}', event)">✕</button>
+          </div>
+        </div>
+      `;
+      lists[st].appendChild(card);
+    });
+
+    document.getElementById('count-todo').innerText = counts.todo;
+    document.getElementById('count-inprogress').innerText = counts.inprogress;
+    document.getElementById('count-done').innerText = counts.done;
+  }
+
+  function allowDrop(e) { e.preventDefault(); }
+  function handleDrop(e, status) {
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain');
+    if (id) updateStatus(id, status);
+  }
+
+  // 2. 주간 뷰 렌더링
+  function changeWeek(diff) {
+    currentWeekOffset += diff;
+    renderWeekly();
+  }
+  function resetWeek() {
+    currentWeekOffset = 0;
+    renderWeekly();
+  }
+
+  function renderWeekly() {
+    const grid = document.getElementById('weeklyGrid');
+    grid.innerHTML = '';
+
+    const curr = new Date();
+    curr.setDate(curr.getDate() + (currentWeekOffset * 7));
+    const currentDay = curr.getDay();
+    const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+    
+    const monday = new Date(curr);
+    monday.setDate(curr.getDate() + distanceToMonday);
+
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+
+    document.getElementById('weekRangeTitle').innerText = 
+      `${monday.getMonth() + 1}월 ${monday.getDate()}일 ~ ${sunday.getMonth() + 1}월 ${sunday.getDate()}일 주간 일정`;
+
+    const days = ['월', '화', '수', '목', '금', '토', '일'];
+
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const dStr = formatDateLocal(d);
+
+      const col = document.createElement('div');
+      col.className = 'day-column';
+      col.innerHTML = `
+        <div class="day-header">
+          <span>${days[i]} (${d.getMonth() + 1}/${d.getDate()})</span>
+          <button class="btn-quick-add" onclick="addTask('${dStr}')">+ 등록</button>
+        </div>
+      `;
+
+      tasks.filter(t => t.dueDate === dStr).forEach(t => {
+        const isDone = t.status === 'done';
+        const item = document.createElement('div');
+        item.className = `week-task-item ${isDone ? 'completed-text' : ''}`;
+        item.innerHTML = `
+          <input type="checkbox" ${isDone ? 'checked' : ''} onchange="toggleTaskComplete('${t.id}')">
+          <span style="flex:1;"><strong>[${isDone ? '완료' : (t.status === 'inprogress' ? '진행' : '대기')}]</strong> ${escapeHtml(t.title)}</span>
+        `;
+        col.appendChild(item);
+      });
+      grid.appendChild(col);
+    }
+  }
+
+  // 3. 월간 뷰 렌더링
+  function changeMonth(diff) {
+    viewDate.setMonth(viewDate.getMonth() + diff);
+    renderMonthly();
+  }
+  function resetMonth() {
+    viewDate = new Date();
+    renderMonthly();
+  }
+
+  function renderMonthly() {
+    const grid = document.getElementById('monthlyGrid');
+    const title = document.getElementById('monthTitle');
+    grid.innerHTML = '';
+
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth();
+    title.innerText = `${year}년 ${month + 1}월 일정 관리`;
+
+    const dayLabels = ['일', '월', '화', '수', '목', '금', '토'];
+    dayLabels.forEach(lbl => {
+      const h = document.createElement('div');
+      h.className = 'cal-header';
+      h.innerText = lbl;
+      grid.appendChild(h);
+    });
+
+    const firstDayIdx = new Date(year, month, 1).getDay();
+    const lastDate = new Date(year, month + 1, 0).getDate();
+
+    for (let i = 0; i < firstDayIdx; i++) grid.appendChild(document.createElement('div'));
+
+    for (let date = 1; date <= lastDate; date++) {
+      const mStr = String(month + 1).padStart(2, '0');
+      const dStr = String(date).padStart(2, '0');
+      const fullDate = `${year}-${mStr}-${dStr}`;
+
+      const cell = document.createElement('div');
+      cell.className = 'cal-cell';
+      cell.title = '클릭하면 이 날짜에 새 업무를 등록합니다';
+      cell.onclick = (e) => {
+        if (e.target.tagName !== 'INPUT' && !e.target.classList.contains('cal-pill')) {
+          document.getElementById('taskDueDate').value = fullDate;
+          addTask(fullDate);
+        }
+      };
+
+      cell.innerHTML = `
+        <div class="cal-cell-header">
+          <span class="cal-date">${date}</span>
+          <span style="font-size:9px; color:var(--text-muted);">+</span>
+        </div>
+      `;
+
+      tasks.filter(t => t.dueDate === fullDate).forEach(t => {
+        const isDone = t.status === 'done';
+        const pill = document.createElement('div');
+        pill.className = `cal-pill ${isDone ? 'completed-pill' : ''}`;
+        pill.innerText = isDone ? `✓ ${t.title}` : t.title;
+        pill.title = `${t.title} (${t.status}) - 클릭하여 완료/대기 전환`;
+        pill.onclick = (e) => {
+          e.stopPropagation();
+          toggleTaskComplete(t.id);
+        };
+        cell.appendChild(pill);
+      });
+      grid.appendChild(cell);
+    }
+  }
+
+  // --- 4. 음성 브리핑 (Web Speech API) 로컬 엔진 ---
+  let availableVoices = [];
+
+  function loadVoices() {
+    if (!('speechSynthesis' in window)) return;
+    availableVoices = window.speechSynthesis.getVoices();
+    const voiceSelect = document.getElementById('voiceSelect');
+    voiceSelect.innerHTML = '';
+
+    const koVoices = availableVoices.filter(v => v.lang.includes('ko') || v.lang.includes('KO'));
+    const targetVoices = koVoices.length > 0 ? koVoices : availableVoices;
+
+    targetVoices.forEach((v) => {
+      const opt = document.createElement('option');
+      opt.value = v.name;
+      
+      let label = v.name;
+      if (v.name.includes('Yuna') || v.name.includes('SunHi') || v.name.includes('Heami') || v.name.includes('Female')) {
+        label += ' (여성 음성)';
+      } else if (v.name.includes('InJoon') || v.name.includes('Male')) {
+        label += ' (남성 음성)';
+      } else {
+        label += ' (한국어)';
+      }
+      opt.innerText = label;
+      voiceSelect.appendChild(opt);
+    });
+
+    const savedVoiceName = localStorage.getItem('app_voice_name');
+    if (savedVoiceName) voiceSelect.value = savedVoiceName;
+  }
+
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    loadVoices();
+  }
+
+  function saveVoiceSettings() {
+    localStorage.setItem('voice_enabled', document.getElementById('voiceEnabled').value);
+    localStorage.setItem('voice_time', document.getElementById('voiceTime').value);
+    localStorage.setItem('app_voice_name', document.getElementById('voiceSelect').value);
+    localStorage.setItem('voice_rate', document.getElementById('voiceRate').value);
+  }
+
+  function initVoiceSettings() {
+    const enabled = localStorage.getItem('voice_enabled') || 'false';
+    const time = localStorage.getItem('voice_time') || '09:00';
+    const rate = localStorage.getItem('voice_rate') || '1.0';
+
+    document.getElementById('voiceEnabled').value = enabled;
+    document.getElementById('voiceTime').value = time;
+    document.getElementById('voiceRate').value = rate;
+  }
+
+  function playVoiceBriefing(isTest = false) {
+    if (!('speechSynthesis' in window)) {
+      alert('현재 사용 중인 브라우저가 음성 읽기 기능을 지원하지 않습니다.');
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const currentToday = formatDateLocal(new Date());
+    const todayTasks = tasks.filter(t => t.dueDate === currentToday && t.status !== 'done');
+    let message = '';
+
+    if (todayTasks.length === 0) {
+      message = '안녕하세요. 오늘 처리해야 할 남은 업무가 없습니다. 좋은 하루 되세요.';
+    } else {
+      message = `안녕하세요. 오늘의 업무 브리핑입니다. 오늘 마감인 미완료 업무는 총 ${todayTasks.length}건입니다. `;
+      todayTasks.forEach((t, i) => {
+        message += `${i + 1}번, ${t.title}. `;
+      });
+      message += '이상입니다. 오늘도 안전하고 활기찬 하루 되십시오.';
+    }
+
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.lang = 'ko-KR';
+    utterance.rate = parseFloat(document.getElementById('voiceRate').value) || 1.0;
+
+    const selectedName = document.getElementById('voiceSelect').value;
+    const selectedVoice = availableVoices.find(v => v.name === selectedName);
+    if (selectedVoice) utterance.voice = selectedVoice;
+
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function stopVoice() {
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  }
+
+  // 10초마다 시각 체크 후 지정 시각에 자동 낭독
+  let lastSpokenDate = '';
+  setInterval(() => {
+    const isEnabled = document.getElementById('voiceEnabled').value === 'true';
+    if (!isEnabled) return;
+
+    const setTime = document.getElementById('voiceTime').value;
+    const now = new Date();
+    const currentHM = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    const currentDate = formatDateLocal(now);
+
+    if (currentHM === setTime && lastSpokenDate !== currentDate) {
+      lastSpokenDate = currentDate;
+      playVoiceBriefing();
+    }
+  }, 10000);
+
+  // --- 5. 깃허브 토큰 및 AES-256 종단간 암호화 동기화 로직 ---
+  async function deriveKey(password, salt) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  }
+
+  async function encryptData(plainText, password) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await deriveKey(password, salt);
+    const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, new TextEncoder().encode(plainText));
+    return JSON.stringify({
+      salt: Array.from(salt),
+      iv: Array.from(iv),
+      cipher: Array.from(new Uint8Array(cipher))
+    });
+  }
+
+  async function decryptData(cipherJsonStr, password) {
+    const data = JSON.parse(cipherJsonStr);
+    const salt = new Uint8Array(data.salt);
+    const iv = new Uint8Array(data.iv);
+    const cipher = new Uint8Array(data.cipher);
+    const key = await deriveKey(password, salt);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, cipher);
+    return new TextDecoder().decode(decrypted);
+  }
+
+  function saveConfig() {
+    localStorage.setItem('gh_owner', document.getElementById('ghOwner').value.trim());
+    localStorage.setItem('gh_repo', document.getElementById('ghRepo').value.trim());
+    localStorage.setItem('gh_token', document.getElementById('ghToken').value.trim());
+  }
+
+  async function syncPush() {
+    saveConfig();
+    const owner = localStorage.getItem('gh_owner') || 'amjuster';
+    const repo = localStorage.getItem('gh_repo') || 'my-task-vault';
+    const token = localStorage.getItem('gh_token');
+    const password = document.getElementById('masterKey').value;
+
+    if (!owner || !repo || !token || !password) {
+      alert('설정값(아이디, 저장소, 토큰)과 암호화 마스터 비밀번호를 모두 입력해주세요.');
+      return;
+    }
+
+    try {
+      const encrypted = await encryptData(JSON.stringify(tasks), password);
+      const contentBase64 = btoa(unescape(encodeURIComponent(encrypted)));
+      const path = 'tasks_vault.json';
+
+      let sha = null;
+      const getRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (getRes.ok) {
+        const fileData = await getRes.json();
+        sha = fileData.sha;
+      }
+
+      const putRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: 'Sync tasks (Encrypted)',
+          content: contentBase64,
+          sha: sha || undefined
+        })
+      });
+
+      if (putRes.ok) {
+        alert('비공개 저장소에 암호화 저장이 완료되었습니다.');
+        togglePanel('syncPanel');
+      } else {
+        alert('업로드 실패: 깃허브 토큰 권한 또는 저장소 이름을 확인하세요.');
+      }
+    } catch (err) {
+      alert('오류 발생: ' + err.message);
+    }
+  }
+
+  async function syncPull() {
+    saveConfig();
+    const owner = localStorage.getItem('gh_owner') || 'amjuster';
+    const repo = localStorage.getItem('gh_repo') || 'my-task-vault';
+    const token = localStorage.getItem('gh_token');
+    const password = document.getElementById('masterKey').value;
+
+    if (!owner || !repo || !token || !password) {
+      alert('설정값(아이디, 저장소, 토큰)과 복호화 비밀번호를 입력해주세요.');
+      return;
+    }
+
+    try {
+      const path = 'tasks_vault.json';
+      const getRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!getRes.ok) {
+        alert('저장된 원격 데이터 파일을 찾을 수 없습니다.');
+        return;
+      }
+
+      const fileData = await getRes.json();
+      const encryptedStr = decodeURIComponent(escape(atob(fileData.content)));
+      const decryptedJson = await decryptData(encryptedStr, password);
+
+      const imported = JSON.parse(decryptedJson);
+      tasks = Array.isArray(imported) ? imported.map((t, i) => normalizeTask(t, i)).filter(t => t.title) : [];
+      saveAndRender();
+      replaceAllTasksInCloud(tasks);
+      alert('최신 할 일 목록을 성공적으로 불러왔습니다.');
+      togglePanel('syncPanel');
+    } catch (err) {
+      alert('불러오기 실패: 비밀번호가 일치하지 않거나 데이터가 손상되었습니다.');
+    }
+  }
+
+  initVoiceSettings();
+  saveAndRender();
+</script>
+</body>
+</html>
